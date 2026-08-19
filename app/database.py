@@ -3,7 +3,7 @@ from pymongo import ASCENDING, DESCENDING, AsyncMongoClient
 
 
 def create_mongo_client(mongodb_url: str):
-    return AsyncMongoClient(mongodb_url)
+    return AsyncMongoClient(mongodb_url, tz_aware=True)
 
 
 async def create_indexes(database):

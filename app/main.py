@@ -3,6 +3,7 @@ from app.config import get_settings
 from app.database import create_mongo_client, create_indexes
 from contextlib import asynccontextmanager
 from app.routers.documents import router as documents_router
+from app.routers.users import router as users_router
 
 settings = get_settings()
 
@@ -31,7 +32,7 @@ app = FastAPI(
 )
 
 app.include_router(documents_router)
-
+app.include_router(users_router)
 
 @app.get("/")
 async def root():

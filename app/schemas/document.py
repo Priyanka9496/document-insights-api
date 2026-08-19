@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 from app.models.enums import DocumentStatus
+from datetime import datetime
+from typing import Optional, List
 
 
 class DocumentCreate(BaseModel):
@@ -18,3 +20,30 @@ class DocumentCreate(BaseModel):
 class DocumentCreateResponse(BaseModel):
     document_id: str
     status: DocumentStatus
+
+
+class DocumentStatusResponse(BaseModel):
+    document_id: str
+    user_id: str
+    title: str
+    status: DocumentStatus
+    summary: Optional[dict] = None
+    error: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    processing_started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class DocumentListItem(BaseModel):
+    document_id: str
+    title: str
+    status: DocumentStatus
+    created_at: datetime
+
+
+class PaginatedDocuments(BaseModel):
+    items: List[DocumentListItem]
+    page: int
+    page_size: int
+    total: int
