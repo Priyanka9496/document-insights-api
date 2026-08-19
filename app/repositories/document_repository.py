@@ -3,7 +3,7 @@ from app.models.enums import DocumentStatus
 from app.schemas.document import DocumentCreate
 from bson import ObjectId
 from bson.errors import InvalidId
-from pymongo import DESCENDING
+from pymongo import DESCENDING, ReturnDocument
 
 
 class DocumentRepository:
@@ -34,6 +34,38 @@ class DocumentRepository:
         document["_id"] = result.inserted_id
 
         return document
+
+    async def claim_next_queued(self):
+        now = datetime.now(UTC)
+
+        return await self.collection.find_one_and_update(
+            {"status": DocumentStatus.QUEUED.value},
+            {
+                "$set": {
+                    "status": DocumentStatus.PROCESSING.value,
+                    "processing_started_at": now,
+                    "updated_at": now
+                }
+            },
+            sort=[("created_at", 1)],
+            return_document=ReturnDocument.AFTER
+        )
+
+    async def mark_completed(self, document_id, summary):
+        now = datetime.now(UTC)
+
+        await self.collection.update_one(
+            {"_id": document_id},
+            {
+                "$set": {
+                    "status": DocumentStatus.COMPLETED.value,
+                    "summary": summary,
+                    "error": None,
+                    "completed_at": now,
+                    "updated_at": now
+                }
+            }
+        )
 
     async def get_by_id(self, document_id):
         try:
@@ -66,3 +98,17 @@ class DocumentRepository:
         total = await self.collection.count_documents(query)
 
         return documents, total
+
+    async def mark_failed(self, document_id, error_message):
+        now = datetime.now(UTC)
+
+        await self.collection.update_one(
+            {"_id": document_id},
+            {
+                "$set": {
+                    "status": DocumentStatus.FAILED.value,
+                    "error": error_message,
+                    "updated_at": now
+                }
+            }
+        )
