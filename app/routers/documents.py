@@ -26,7 +26,7 @@ async def create_document(
     service: DocumentService = Depends(get_document_service)
 ):
     try:
-        document = await service.create_document(payload)
+        document, cached = await service.create_document(payload)
     except RateLimitExceeded:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -34,7 +34,9 @@ async def create_document(
         )
     return {
         "document_id": str(document["_id"]),
-        "status": document["status"]
+        "status": document["status"],
+        "summary": document["summary"],
+        "cached": cached
     }
 
 

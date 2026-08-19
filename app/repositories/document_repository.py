@@ -1,6 +1,5 @@
 from datetime import UTC, datetime
 from app.models.enums import DocumentStatus
-from app.schemas.document import DocumentCreate
 from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo import DESCENDING, ReturnDocument
@@ -112,3 +111,26 @@ class DocumentRepository:
                 }
             }
         )
+
+    async def create_completed(self, payload, content_hash, summary):
+        now = datetime.now(UTC)
+
+        document = {
+            "user_id": payload.user_id,
+            "title": payload.title,
+            "content": payload.content,
+            "content_hash": content_hash,
+            "status": DocumentStatus.COMPLETED.value,
+            "summary": summary,
+            "error": None,
+            "created_at": now,
+            "updated_at": now,
+            "processing_started_at": None,
+            "completed_at": now
+        }
+
+        result = await self.collection.insert_one(document)
+
+        document["_id"] = result.inserted_id
+
+        return document

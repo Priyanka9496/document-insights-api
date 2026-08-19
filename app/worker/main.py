@@ -1,4 +1,6 @@
 import asyncio
+import json
+import logging
 import random
 
 from app.config import get_settings
@@ -6,9 +8,15 @@ from app.database import create_mongo_client
 from app.redis_client import create_redis_client
 from app.repositories.document_repository import DocumentRepository
 from app.services.rate_limiter import ActiveJobLimiter
-
+from app.services.cache_service import SummaryCache
 
 settings = get_settings()
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s"
+)
+
+logger = logging.getLogger(__name__)
 
 
 def build_mock_summary(content):
@@ -23,7 +31,7 @@ def build_mock_summary(content):
     }
 
 
-async def process_document(document, repository, rate_limiter):
+async def process_document(document, repository, rate_limiter, cache):
     user_id = document["user_id"]
     document_id = document["_id"]
 
@@ -32,7 +40,13 @@ async def process_document(document, repository, rate_limiter):
             settings.processing_min_seconds,
             settings.processing_max_seconds
         )
-
+        logger.info(
+            json.dumps({
+                "event": "document_processing_started",
+                "document_id": str(document_id),
+                "user_id": user_id
+            })
+        )
         await asyncio.sleep(processing_time)
 
         if random.random() < settings.processing_failure_rate:
@@ -44,8 +58,30 @@ async def process_document(document, repository, rate_limiter):
             document_id,
             summary
         )
+        await cache.set(
+            user_id,
+            document["content_hash"],
+            summary
+        )
+        logger.info(
+            json.dumps({
+                "event": "document_processing_completed",
+                "document_id": str(document_id),
+                "user_id": user_id,
+                "processing_time_seconds": processing_time
+            })
+        )
 
-    except Exception:
+    except Exception as error:
+        logger.exception(
+            json.dumps({
+                "event": "document_processing_failed",
+                "document_id": str(document_id),
+                "user_id": user_id,
+                "error": str(error)
+            })
+        )
+
         await repository.mark_failed(
             document_id,
             "Document processing failed"
@@ -54,11 +90,17 @@ async def process_document(document, repository, rate_limiter):
     finally:
         await rate_limiter.release(user_id)
 
+
 async def run_worker():
     mongo_client = create_mongo_client(settings.mongodb_url)
     database = mongo_client[settings.mongodb_database]
 
     redis_client = create_redis_client(settings.redis_url)
+
+    cache = SummaryCache(
+        redis_client,
+        settings.summary_cache_ttl_seconds
+    )
 
     repository = DocumentRepository(
         database["documents"]
@@ -68,6 +110,11 @@ async def run_worker():
         redis_client,
         settings.max_active_jobs_per_user,
         settings.active_job_ttl_seconds
+    )
+    logger.info(
+        json.dumps({
+            "event": "worker_started"
+        })
     )
 
     try:
@@ -81,7 +128,8 @@ async def run_worker():
             await process_document(
                 document,
                 repository,
-                rate_limiter
+                rate_limiter,
+                cache
             )
 
     finally:

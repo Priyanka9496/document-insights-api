@@ -4,6 +4,12 @@ from datetime import datetime
 from typing import Optional, List
 
 
+class Summary(BaseModel):
+    overview: str
+    word_count: int
+    key_points: List[str]
+
+
 class DocumentCreate(BaseModel):
     user_id: str = Field(min_length=1, max_length=100)
     title: str = Field(min_length=1, max_length=200)
@@ -20,6 +26,8 @@ class DocumentCreate(BaseModel):
 class DocumentCreateResponse(BaseModel):
     document_id: str
     status: DocumentStatus
+    summary: Optional[Summary] = None
+    cached: bool = False
 
 
 class DocumentStatusResponse(BaseModel):
@@ -27,7 +35,7 @@ class DocumentStatusResponse(BaseModel):
     user_id: str
     title: str
     status: DocumentStatus
-    summary: Optional[dict] = None
+    summary: Optional[Summary] = None
     error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
