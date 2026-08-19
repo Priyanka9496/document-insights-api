@@ -1,3 +1,10 @@
+from redis.exceptions import RedisError
+
+
+class RateLimiterUnavailable(Exception):
+    pass
+
+
 ACQUIRE_SCRIPT = """
 local current = tonumber(redis.call("GET", KEYS[1]) or "0")
 local limit = tonumber(ARGV[1])
@@ -34,14 +41,16 @@ class ActiveJobLimiter:
 
     async def acquire(self, user_id):
         key = f"active_jobs:{user_id}"
-
-        result = await self.redis_client.eval(
-            ACQUIRE_SCRIPT,
-            1,
-            key,
-            self.limit,
-            self.ttl
-        )
+        try:
+            result = await self.redis_client.eval(
+                ACQUIRE_SCRIPT,
+                1,
+                key,
+                self.limit,
+                self.ttl
+            )
+        except RedisError as error:
+            raise RateLimiterUnavailable() from error
 
         return result == 1
 

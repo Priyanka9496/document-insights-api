@@ -6,7 +6,7 @@ from app.schemas.document import (
     DocumentStatusResponse
 )
 from app.services.document_service import DocumentService, RateLimitExceeded
-
+from app.services.rate_limiter import RateLimiterUnavailable
 
 router = APIRouter(
     prefix="/documents",
@@ -18,7 +18,8 @@ router = APIRouter(
     response_model=DocumentCreateResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
-        429: {"description": "Too many active documents"}
+        429: {"description": "Too many active documents"},
+        503: {"description": "Rate limiting service unavailable"}
     }
 )
 async def create_document(
@@ -27,11 +28,19 @@ async def create_document(
 ):
     try:
         document, cached = await service.create_document(payload)
+
     except RateLimitExceeded:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Maximum active document limit reached"
         )
+
+    except RateLimiterUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Processing service temporarily unavailable"
+        )
+
     return {
         "document_id": str(document["_id"]),
         "status": document["status"],
