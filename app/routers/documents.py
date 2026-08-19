@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends, Request, status, HTTPException
-
-from app.repositories.document_repository import DocumentRepository
-from app.schemas.document import DocumentCreate, DocumentCreateResponse, DocumentStatusResponse
-from app.services.document_service import DocumentService
+from fastapi import APIRouter, Depends, status, HTTPException
+from app.dependencies import get_document_service
+from app.schemas.document import (
+    DocumentCreate,
+    DocumentCreateResponse,
+    DocumentStatusResponse
+)
+from app.services.document_service import DocumentService, RateLimitExceeded
 
 
 router = APIRouter(
@@ -10,26 +13,25 @@ router = APIRouter(
     tags=["documents"]
 )
 
-
-def get_document_service(request: Request):
-    collection = request.app.state.database["documents"]
-
-    repository = DocumentRepository(collection)
-
-    return DocumentService(repository)
-
-
 @router.post(
     "",
     response_model=DocumentCreateResponse,
-    status_code=status.HTTP_201_CREATED
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        429: {"description": "Too many active documents"}
+    }
 )
 async def create_document(
     payload: DocumentCreate,
     service: DocumentService = Depends(get_document_service)
 ):
-    document = await service.create_document(payload)
-
+    try:
+        document = await service.create_document(payload)
+    except RateLimitExceeded:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Maximum active document limit reached"
+        )
     return {
         "document_id": str(document["_id"]),
         "status": document["status"]
@@ -39,7 +41,7 @@ async def create_document(
 @router.get(
     "/{document_id}",
     response_model=DocumentStatusResponse,
-    responses= {
+    responses={
         404: {"description": "Document not found"}
     }
 )

@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     mongodb_database: str = "document_insights"
     redis_url: str = "redis://localhost:6379"
     max_active_jobs_per_user: int = 3
+    active_job_ttl_seconds: int = 900
     summary_cache_ttl_seconds: int = 86400
 
     processing_min_seconds: int = 10
