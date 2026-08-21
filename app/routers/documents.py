@@ -1,25 +1,34 @@
 from fastapi import APIRouter, Depends, status, HTTPException
+
 from app.dependencies import get_document_service
 from app.schemas.document import (
     DocumentCreate,
     DocumentCreateResponse,
     DocumentStatusResponse
 )
-from app.services.document_service import DocumentService, RateLimitExceeded
+from app.services.document_service import (
+    DocumentService,
+    RateLimitExceeded,
+    DuplicateDocumentInProgress
+)
 from app.services.rate_limiter import RateLimiterUnavailable
+from app.services.inflight_lock import InFlightLockUnavailable
+
 
 router = APIRouter(
     prefix="/documents",
     tags=["documents"]
 )
 
+
 @router.post(
     "",
     response_model=DocumentCreateResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
+        409: {"description": "Identical document already processing"},
         429: {"description": "Too many active documents"},
-        503: {"description": "Rate limiting service unavailable"}
+        503: {"description": "Processing service unavailable"}
     }
 )
 async def create_document(
@@ -28,6 +37,12 @@ async def create_document(
 ):
     try:
         document, cached = await service.create_document(payload)
+
+    except DuplicateDocumentInProgress:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Identical document is already being processed"
+        )
 
     except RateLimitExceeded:
         raise HTTPException(
@@ -38,7 +53,13 @@ async def create_document(
     except RateLimiterUnavailable:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Processing service temporarily unavailable"
+            detail="Rate limiting service temporarily unavailable"
+        )
+
+    except InFlightLockUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document processing lock service is temporarily unavailable"
         )
 
     return {

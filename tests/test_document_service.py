@@ -6,7 +6,8 @@ from bson import ObjectId
 from app.schemas.document import DocumentCreate, Summary
 from app.services.document_service import (
     DocumentService,
-    RateLimitExceeded
+    RateLimitExceeded,
+    DuplicateDocumentInProgress
 )
 
 
@@ -37,10 +38,14 @@ async def test_cache_hit_skips_rate_limiter():
         )
     )
 
+    inflight_lock = Mock()
+    inflight_lock.acquire = AsyncMock()
+
     service = DocumentService(
         repository,
         rate_limiter,
-        cache
+        cache,
+        inflight_lock
     )
 
     payload = DocumentCreate(
@@ -55,6 +60,39 @@ async def test_cache_hit_skips_rate_limiter():
     assert document["status"] == "completed"
 
     rate_limiter.acquire.assert_not_awaited()
+    inflight_lock.acquire.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_document_in_progress_is_rejected():
+    repository = Mock()
+
+    rate_limiter = Mock()
+    rate_limiter.acquire = AsyncMock()
+
+    cache = Mock()
+    cache.get = AsyncMock(return_value=None)
+
+    inflight_lock = Mock()
+    inflight_lock.acquire = AsyncMock(return_value=False)
+
+    service = DocumentService(
+        repository,
+        rate_limiter,
+        cache,
+        inflight_lock
+    )
+
+    payload = DocumentCreate(
+        user_id="user-1",
+        title="Test",
+        content="Same content"
+    )
+
+    with pytest.raises(DuplicateDocumentInProgress):
+        await service.create_document(payload)
+
+    rate_limiter.acquire.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -67,10 +105,15 @@ async def test_rate_limit_rejects_new_document():
     cache = Mock()
     cache.get = AsyncMock(return_value=None)
 
+    inflight_lock = Mock()
+    inflight_lock.acquire = AsyncMock(return_value=True)
+    inflight_lock.release = AsyncMock()
+
     service = DocumentService(
         repository,
         rate_limiter,
-        cache
+        cache,
+        inflight_lock
     )
 
     payload = DocumentCreate(
@@ -81,3 +124,5 @@ async def test_rate_limit_rejects_new_document():
 
     with pytest.raises(RateLimitExceeded):
         await service.create_document(payload)
+
+    inflight_lock.release.assert_awaited_once()

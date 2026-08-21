@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     max_active_jobs_per_user: int = 3
     active_job_ttl_seconds: int = 900
     summary_cache_ttl_seconds: int = 86400
+    inflight_lock_ttl_seconds: int = 900
 
     processing_min_seconds: int = 10
     processing_max_seconds: int = 30

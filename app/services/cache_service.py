@@ -12,11 +12,11 @@ class SummaryCache:
         self.redis_client = redis_client
         self.ttl = ttl
 
-    def _get_key(self, user_id, content_hash):
-        return f"summary:{user_id}:{content_hash}"
+    def _get_key(self, content_hash):
+        return f"summary:{content_hash}"
 
-    async def get(self, user_id, content_hash):
-        key = self._get_key(user_id, content_hash)
+    async def get(self, content_hash):
+        key = self._get_key(content_hash)
 
         try:
             cached_value = await self.redis_client.get(key)
@@ -41,8 +41,8 @@ class SummaryCache:
             )
             return None
 
-    async def set(self, user_id, content_hash, summary):
-        key = self._get_key(user_id, content_hash)
+    async def set(self, content_hash, summary):
+        key = self._get_key(content_hash)
 
         try:
             await self.redis_client.set(

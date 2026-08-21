@@ -9,6 +9,8 @@ from app.redis_client import create_redis_client
 from app.repositories.document_repository import DocumentRepository
 from app.services.rate_limiter import ActiveJobLimiter
 from app.services.cache_service import SummaryCache
+from app.services.inflight_lock import InFlightDocumentLock
+
 
 settings = get_settings()
 logging.basicConfig(
@@ -31,15 +33,23 @@ def build_mock_summary(content):
     }
 
 
-async def process_document(document, repository, rate_limiter, cache):
+async def process_document(
+    document,
+    repository,
+    rate_limiter,
+    cache,
+    inflight_lock
+):
     user_id = document["user_id"]
     document_id = document["_id"]
+    content_hash = document["content_hash"]
 
     try:
         processing_time = random.randint(
             settings.processing_min_seconds,
             settings.processing_max_seconds
         )
+
         logger.info(
             json.dumps({
                 "event": "document_processing_started",
@@ -47,22 +57,28 @@ async def process_document(document, repository, rate_limiter, cache):
                 "user_id": user_id
             })
         )
+
         await asyncio.sleep(processing_time)
 
         if random.random() < settings.processing_failure_rate:
-            raise RuntimeError("Simulated processing failure")
+            raise RuntimeError(
+                "Simulated processing failure"
+            )
 
-        summary = build_mock_summary(document["content"])
+        summary = build_mock_summary(
+            document["content"]
+        )
 
         await repository.mark_completed(
             document_id,
             summary
         )
+
         await cache.set(
-            user_id,
-            document["content_hash"],
+            content_hash,
             summary
         )
+
         logger.info(
             json.dumps({
                 "event": "document_processing_completed",
@@ -88,18 +104,42 @@ async def process_document(document, repository, rate_limiter, cache):
         )
 
     finally:
-        await rate_limiter.release(user_id)
+        try:
+            await rate_limiter.release(
+                user_id
+            )
+        except Exception:
+            logger.warning(
+                "Failed to release active-job slot",
+                exc_info=True
+            )
+
+        await inflight_lock.release(
+            content_hash
+        )
 
 
 async def run_worker():
-    mongo_client = create_mongo_client(settings.mongodb_url)
-    database = mongo_client[settings.mongodb_database]
+    mongo_client = create_mongo_client(
+        settings.mongodb_url
+    )
 
-    redis_client = create_redis_client(settings.redis_url)
+    database = mongo_client[
+        settings.mongodb_database
+    ]
+
+    redis_client = create_redis_client(
+        settings.redis_url
+    )
 
     cache = SummaryCache(
         redis_client,
         settings.summary_cache_ttl_seconds
+    )
+
+    inflight_lock = InFlightDocumentLock(
+        redis_client,
+        settings.inflight_lock_ttl_seconds
     )
 
     repository = DocumentRepository(
@@ -111,6 +151,7 @@ async def run_worker():
         settings.max_active_jobs_per_user,
         settings.active_job_ttl_seconds
     )
+
     logger.info(
         json.dumps({
             "event": "worker_started"
@@ -129,7 +170,8 @@ async def run_worker():
                 document,
                 repository,
                 rate_limiter,
-                cache
+                cache,
+                inflight_lock
             )
 
     finally:
